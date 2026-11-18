@@ -3,13 +3,13 @@ name: ItemTimer
 version: '${project.version}'
 api-version: '1.21'
 author: Hiyo41
-description: Displays a countdown timer and information above dropped items and removes them.
-website: https://github.com/hiyo412012
+description: Cosmetic countdown timers above dropped items with optional early removal.
+website: https://github.com/hiyo41/ItemTimer
 commands:
   itemtimer:
     description: Main command for ItemTimer
     aliases: [it]
 permissions:
   itemtimer.admin:
-    description: Allows reloading the configuration
+    description: Allows reloading the configuration and checking for updates
     default: op

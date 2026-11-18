@@ -1,5 +1,8 @@
 # ItemTimer Configuration by Hiyo41
-# GitHub: https://github.com/hiyo412012
+# GitHub: https://github.com/hiyo41/ItemTimer
+#
+# ItemTimer is a cosmetic plugin. It does not meaningfully reduce server lag.
+# ItemTimer chỉ để làm đẹp, không phải plugin giảm lag.
 
 # DO NOT CHANGE THIS!
 config-version: 1.1
@@ -16,13 +19,13 @@ features:
     translate-item-names: true
     # Sử dụng tên tùy chỉnh của item nếu có?
     use-custom-name: true
-  
+
   # Pulsing effect when time is low
   pulsing:
     enable: true
     start-at: 10
     color: "&4"
-  
+
   # Progress bar display
   progress-bar:
     enable: true
@@ -30,7 +33,7 @@ features:
     size: 10
     full-color: "&a"
     empty-color: "&7"
-  
+
   # Automatic item removal
   item-removal:
     enable: true
@@ -47,7 +50,7 @@ features:
 timers:
   # Default time in seconds
   default: 60
-  
+
   # Custom timers for specific materials
   # Format: MATERIAL_NAME: seconds
   custom:
@@ -70,9 +73,6 @@ items:
     - BEDROCK
     - BARRIER
     - COMMAND_BLOCK
-  
+
   # Only track items with these materials (leave empty for all)
   whitelist: []
-
-# Build Settings (for pom.xml logic)
-backup-enabled: true

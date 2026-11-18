@@ -17,6 +17,7 @@ commands:
     header: "&6--- ItemTimer Help ---"
     reload: "&f/it reload &7- Reload config and messages"
     status: "&f/it status &7- Show plugin status"
+    check: "&f/it check &7- Kiểm tra cập nhật thủ công"
     footer: "&6---------------------"
   status:
     header: "&6--- ItemTimer Status ---"
@@ -30,4 +31,3 @@ commands:
 # Available placeholders: {time}, {name}, {amount}, {progress}
 display:
   format: "&c⚠ {time} &f| &e{name} &a{amount}x"
-  legacy-name: true # Use legacy material names for older versions?

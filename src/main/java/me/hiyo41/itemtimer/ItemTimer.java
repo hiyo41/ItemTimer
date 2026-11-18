@@ -1,7 +1,9 @@
 package me.hiyo41.itemtimer;
 
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
+import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import org.bukkit.Bukkit;
-import org.bukkit.ChatColor;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
@@ -12,6 +14,8 @@ import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.plugin.java.JavaPlugin;
 
 public class ItemTimer extends JavaPlugin implements CommandExecutor, Listener {
+
+    private static final LegacyComponentSerializer LEGACY = LegacyComponentSerializer.legacyAmpersand();
 
     private ConfigManager configManager;
     private ItemTracker itemTracker;
@@ -32,26 +36,29 @@ public class ItemTimer extends JavaPlugin implements CommandExecutor, Listener {
             checkUpdate(null);
         }
 
-        getLogger().info("ItemTimer v" + getDescription().getVersion() + " by Hiyo41 đã được kích hoạt!");
+        getLogger().info("ItemTimer v" + getPluginMeta().getVersion() + " by Hiyo41 đã được kích hoạt!");
     }
 
     private void checkUpdate(CommandSender sender) {
-        new UpdateChecker(this).checkUpdate(result -> {
-            this.latestUpdate = result;
-            if (result != null) {
-                String msg = color(configManager.getPrefix() + configManager.getMessage("commands.update-found")
-                        .replace("{version}", result.version)
-                        .replace("{url}", result.url));
-                
-                if (sender != null) {
-                    sender.sendMessage(msg);
-                } else {
-                    getLogger().warning(msg);
-                }
-            } else if (sender != null) {
-                sender.sendMessage(color(configManager.getPrefix() + configManager.getMessage("commands.update-latest")));
-            }
-        });
+        new UpdateChecker(this).checkUpdate(result ->
+                // The HTTP request runs async; messages and plugin state must
+                // be touched on the server thread.
+                Bukkit.getScheduler().runTask(this, () -> {
+                    this.latestUpdate = result;
+                    if (result != null) {
+                        String raw = configManager.getPrefix() + configManager.getMessage("commands.update-found")
+                                .replace("{version}", result.version)
+                                .replace("{url}", result.url);
+                        if (sender != null) {
+                            sender.sendMessage(color(raw));
+                        } else {
+                            getLogger().warning(plain(color(raw)));
+                        }
+                    } else if (sender != null) {
+                        sender.sendMessage(color(configManager.getPrefix()
+                                + configManager.getMessage("commands.update-latest")));
+                    }
+                }));
     }
 
     @EventHandler
@@ -59,9 +66,9 @@ public class ItemTimer extends JavaPlugin implements CommandExecutor, Listener {
         Player player = event.getPlayer();
         if (latestUpdate != null && player.hasPermission("itemtimer.admin")) {
             Bukkit.getScheduler().runTaskLater(this, () -> {
-                String msg = color(configManager.getMessage("commands.update-join-notify")
+                String msg = configManager.getMessage("commands.update-join-notify")
                         .replace("{version}", latestUpdate.version)
-                        .replace("{url}", latestUpdate.url));
+                        .replace("{url}", latestUpdate.url);
                 player.sendMessage(color(configManager.getPrefix() + msg));
             }, 40L); // Delay 2 seconds to make sure chat is stable
         }
@@ -126,16 +133,19 @@ public class ItemTimer extends JavaPlugin implements CommandExecutor, Listener {
         sender.sendMessage(color(configManager.getMessage("commands.help.header")));
         sender.sendMessage(color(configManager.getMessage("commands.help.reload")));
         sender.sendMessage(color(configManager.getMessage("commands.help.status")));
-        sender.sendMessage(color(color("&f/it check &7- Kiểm tra cập nhật thủ công")));
+        sender.sendMessage(color(configManager.getMessage("commands.help.check")));
         sender.sendMessage(color(configManager.getMessage("commands.help.footer")));
     }
 
     private void sendStatus(CommandSender sender) {
         sender.sendMessage(color(configManager.getMessage("commands.status.header")));
-        sender.sendMessage(color(configManager.getMessage("commands.status.version")).replace("{version}", getDescription().getVersion()));
+        sender.sendMessage(color(configManager.getMessage("commands.status.version")
+                .replace("{version}", getPluginMeta().getVersion())));
         sender.sendMessage(color(configManager.getMessage("commands.status.author")));
-        sender.sendMessage(color(configManager.getMessage("commands.status.tracked-items")).replace("{amount}", String.valueOf(itemTracker.getTrackedCount())));
-        sender.sendMessage(color(configManager.getMessage("commands.status.uptime")).replace("{uptime}", getUptime()));
+        sender.sendMessage(color(configManager.getMessage("commands.status.tracked-items")
+                .replace("{amount}", String.valueOf(itemTracker.getTrackedCount()))));
+        sender.sendMessage(color(configManager.getMessage("commands.status.uptime")
+                .replace("{uptime}", getUptime())));
         sender.sendMessage(color(configManager.getMessage("commands.status.footer")));
     }
 
@@ -147,7 +157,11 @@ public class ItemTimer extends JavaPlugin implements CommandExecutor, Listener {
         return String.format("%dh %dm %ds", hours, minutes % 60, seconds % 60);
     }
 
-    private String color(String text) {
-        return ChatColor.translateAlternateColorCodes('&', text);
+    private Component color(String text) {
+        return LEGACY.deserialize(text);
+    }
+
+    private String plain(Component component) {
+        return PlainTextComponentSerializer.plainText().serialize(component);
     }
 }

@@ -7,6 +7,7 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -16,6 +17,7 @@ public class ConfigManager {
     private final ItemTimer plugin;
     private FileConfiguration config;
     private FileConfiguration messages;
+    private FileConfiguration defaultMessages;
     private File messagesFile;
 
     // Feature Toggles
@@ -65,6 +67,18 @@ public class ConfigManager {
             plugin.saveResource("messages.yml", false);
         }
         messages = YamlConfiguration.loadConfiguration(messagesFile);
+
+        // Keep a copy of the bundled defaults so new message keys still work
+        // for servers that already have an older messages.yml.
+        defaultMessages = new YamlConfiguration();
+        InputStream defaults = plugin.getResource("messages.yml");
+        if (defaults != null) {
+            try (InputStreamReader reader = new InputStreamReader(defaults, StandardCharsets.UTF_8)) {
+                defaultMessages = YamlConfiguration.loadConfiguration(reader);
+            } catch (IOException e) {
+                plugin.getLogger().log(Level.WARNING, "Could not load default messages.yml", e);
+            }
+        }
 
         checkVersions();
         parseConfig();
@@ -126,16 +140,17 @@ public class ConfigManager {
     }
 
     public String getMessage(String path) {
-        String msg = messages.getString(path, "Missing message: " + path);
-        return msg;
+        String fallback = defaultMessages != null
+                ? defaultMessages.getString(path, "Missing message: " + path)
+                : "Missing message: " + path;
+        return messages.getString(path, fallback);
     }
 
     public String getDisplayFormat() {
-        return messages.getString("display.format", "&c⚠ {time} &f| &e{name} &a{amount}x");
-    }
-
-    public boolean useLegacyNames() {
-        return messages.getBoolean("display.legacy-name", true);
+        String fallback = defaultMessages != null
+                ? defaultMessages.getString("display.format", "&c⚠ {time} &f| &e{name} &a{amount}x")
+                : "&c⚠ {time} &f| &e{name} &a{amount}x";
+        return messages.getString("display.format", fallback);
     }
 
     // Getters
@@ -165,6 +180,9 @@ public class ConfigManager {
     public Integer getCustomTimer(String material) { return customTimers.get(material.toUpperCase()); }
     
     public String getPrefix() {
-        return messages.getString("prefix", "&8[&6ItemTimer&8] &r");
+        String fallback = defaultMessages != null
+                ? defaultMessages.getString("prefix", "&8[&6ItemTimer&8] &r")
+                : "&8[&6ItemTimer&8] &r";
+        return messages.getString("prefix", fallback);
     }
 }

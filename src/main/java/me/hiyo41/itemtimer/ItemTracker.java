@@ -2,8 +2,10 @@ package me.hiyo41.itemtimer;
 
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.format.TextColor;
 import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import org.bukkit.Bukkit;
+import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
 import org.bukkit.Sound;
 import org.bukkit.World;
@@ -15,20 +17,33 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.entity.ItemMergeEvent;
 import org.bukkit.event.entity.ItemSpawnEvent;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.persistence.PersistentDataContainer;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.scheduler.BukkitTask;
 
+import java.util.EnumMap;
 import java.util.HashSet;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 
 public class ItemTracker implements Listener {
+    private static final LegacyComponentSerializer LEGACY = LegacyComponentSerializer.legacyAmpersand();
+
     private final ItemTimer plugin;
     private final ConfigManager config;
     private BukkitTask updateTask;
-    
+
     private final NamespacedKey timeKey;
     private final NamespacedKey maxTimeKey;
+    private final Map<Material, Component> nameCache = new EnumMap<>(Material.class);
+    private String[] formatParts;
+    private TextColor pulsingColor;
+    private TextColor progressFullColor;
+    private TextColor progressEmptyColor;
+    private Sound lowTimeSound;
+    private String lowTimeSoundName;
     private int trackedCount = 0;
 
     public ItemTracker(ItemTimer plugin, ConfigManager config) {
@@ -36,6 +51,7 @@ public class ItemTracker implements Listener {
         this.config = config;
         this.timeKey = new NamespacedKey(plugin, "timer");
         this.maxTimeKey = new NamespacedKey(plugin, "max_timer");
+        reload();
         startTask();
     }
 
@@ -87,14 +103,10 @@ public class ItemTracker implements Listener {
                     // Sound when time is low
                     if (config.isLowTimeSoundEnabled() && remaining <= config.getLowTimeSoundTime()) {
                         Block b = item.getLocation().getBlock();
-                        if (!playedSounds.contains(b)) {
-                            try {
-                                Sound sound = Sound.valueOf(config.getLowTimeSoundValue());
-                                world.playSound(item.getLocation(), sound, config.getLowTimeSoundVolume(), config.getLowTimeSoundPitch());
-                                playedSounds.add(b);
-                            } catch (IllegalArgumentException e) {
-                                // Invalid sound effect, do nothing
-                            }
+                        Sound sound = getLowTimeSound();
+                        if (sound != null && !playedSounds.contains(b)) {
+                            world.playSound(item.getLocation(), sound, config.getLowTimeSoundVolume(), config.getLowTimeSoundPitch());
+                            playedSounds.add(b);
                         }
                     }
                 }
@@ -164,49 +176,38 @@ public class ItemTracker implements Listener {
 
     private void updateItemDisplay(Item item, int seconds, int max) {
         ItemStack stack = item.getItemStack();
+        ItemMeta meta = stack.getItemMeta();
         Component nameComponent;
-        
-        if (config.isUseCustomName() && stack.hasItemMeta() && stack.getItemMeta().hasDisplayName()) {
-            nameComponent = stack.getItemMeta().displayName();
+
+        if (config.isUseCustomName() && meta != null && meta.hasDisplayName()) {
+            nameComponent = meta.displayName();
         } else if (config.isTranslateItemNames()) {
-            nameComponent = Component.translatable(stack.getType().translationKey());
+            nameComponent = nameCache.computeIfAbsent(stack.getType(),
+                    type -> Component.translatable(type.translationKey()));
         } else {
             nameComponent = Component.text(capitalize(stack.getType().name().replace("_", " ")));
         }
-        
-        String format = config.getDisplayFormat();
-        String timeStr = String.valueOf(seconds);
-        
-        boolean pulsing = false;
-        if (config.isPulsingEnabled() && seconds <= config.getPulsingStartAt()) {
-            if (seconds % 2 == 0) {
-                pulsing = true;
-            }
-        }
 
-        Component timeComp = Component.text(timeStr);
-        if (pulsing) {
-            LegacyComponentSerializer serializer = LegacyComponentSerializer.legacyAmpersand();
-            timeComp = timeComp.color(serializer.deserialize(config.getPulsingColor()).color());
-        } else {
-            timeComp = timeComp.color(NamedTextColor.RED);
-        }
+        boolean pulsing = config.isPulsingEnabled()
+                && seconds <= config.getPulsingStartAt()
+                && seconds % 2 == 0;
+        Component timeComp = Component.text(String.valueOf(seconds)).color(pulsing ? pulsingColor : NamedTextColor.RED);
 
-        Component progressComp = config.isProgressBarEnabled() ? getProgressBarComponent(seconds, max) : Component.empty();
+        Component progressComp = config.isProgressBarEnabled()
+                ? getProgressBarComponent(seconds, max)
+                : Component.empty();
         Component amountComp = Component.text(stack.getAmount()).color(NamedTextColor.GREEN);
 
-        Component finalDisplay = parseFormat(format, timeComp, nameComponent, amountComp, progressComp);
-
+        Component finalDisplay = parseFormat(timeComp, nameComponent, amountComp, progressComp);
         item.customName(finalDisplay);
         item.setCustomNameVisible(true);
     }
 
-    private Component parseFormat(String format, Component time, Component name, Component amount, Component progress) {
-        String[] parts = format.split("(?=\\{)|(?<=\\})");
+    private Component parseFormat(Component time, Component name, Component amount, Component progress) {
         Component result = Component.empty();
-        LegacyComponentSerializer serializer = LegacyComponentSerializer.legacyAmpersand();
+        if (formatParts == null) return result;
 
-        for (String part : parts) {
+        for (String part : formatParts) {
             switch (part) {
                 case "{time}":
                     result = result.append(time);
@@ -221,7 +222,7 @@ public class ItemTracker implements Listener {
                     result = result.append(progress);
                     break;
                 default:
-                    result = result.append(serializer.deserialize(part.replace("{", "").replace("}", "")));
+                    result = result.append(LEGACY.deserialize(part.replace("{", "").replace("}", "")));
                     break;
             }
         }
@@ -233,25 +234,16 @@ public class ItemTracker implements Listener {
         if (max <= 0) max = 1;
         int fullCount = (int) Math.round(((double) current / max) * size);
         fullCount = Math.min(size, Math.max(0, fullCount));
-        
-        LegacyComponentSerializer serializer = LegacyComponentSerializer.legacyAmpersand();
-        Component fullPart = Component.text(repeat(config.getProgressSymbol(), fullCount))
-                .color(serializer.deserialize(config.getProgressFullColor()).color());
-        Component emptyPart = Component.text(repeat(config.getProgressSymbol(), size - fullCount))
-                .color(serializer.deserialize(config.getProgressEmptyColor()).color());
-                
-        return fullPart.append(emptyPart);
-    }
 
-    private String repeat(String s, int n) {
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < n; i++) sb.append(s);
-        return sb.toString();
+        String symbol = config.getProgressSymbol();
+        Component fullPart = Component.text(symbol.repeat(fullCount)).color(progressFullColor);
+        Component emptyPart = Component.text(symbol.repeat(size - fullCount)).color(progressEmptyColor);
+        return fullPart.append(emptyPart);
     }
 
     private String capitalize(String str) {
         if (str == null || str.isEmpty()) return str;
-        String[] words = str.toLowerCase().split(" ");
+        String[] words = str.toLowerCase(Locale.ROOT).split(" ");
         StringBuilder sb = new StringBuilder();
         for (String w : words) {
             if (w.length() > 0) {
@@ -262,6 +254,32 @@ public class ItemTracker implements Listener {
     }
 
     public void reload() {
+        nameCache.clear();
+        formatParts = config.getDisplayFormat().split("(?=\\{)|(?<=\\})");
+        pulsingColor = colorOr(config.getPulsingColor(), NamedTextColor.DARK_RED);
+        progressFullColor = colorOr(config.getProgressFullColor(), NamedTextColor.GREEN);
+        progressEmptyColor = colorOr(config.getProgressEmptyColor(), NamedTextColor.GRAY);
+        lowTimeSound = null;
+        lowTimeSoundName = null;
+    }
+
+    private TextColor colorOr(String legacy, TextColor fallback) {
+        if (legacy == null) return fallback;
+        TextColor color = LEGACY.deserialize(legacy).color();
+        return color != null ? color : fallback;
+    }
+
+    private Sound getLowTimeSound() {
+        String name = config.getLowTimeSoundValue();
+        if (!name.equals(lowTimeSoundName)) {
+            lowTimeSoundName = name;
+            try {
+                lowTimeSound = Sound.valueOf(name);
+            } catch (IllegalArgumentException e) {
+                lowTimeSound = null;
+            }
+        }
+        return lowTimeSound;
     }
 
     public void cleanup() {
